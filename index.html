@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fork() Playground — Interactive Linux Process Execution</title>
+  <meta name="description" content="An interactive Linux process execution debugger explaining fork(), process duplication, return values, copy-on-write memory, and scheduling.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="theme-debugger">
+  <!-- Top Navigation & Debugger Toolbar -->
+  <header class="app-header">
+    <div class="header-brand">
+      <h1 class="header-title">fork() Playground</h1>
+      <p class="header-subtitle">One process &rarr; sys_fork() &rarr; Two independent execution paths</p>
+    </div>
+
+    <!-- Central Execution Controls -->
+    <div class="header-controls" role="toolbar" aria-label="Simulation Controls">
+      <div class="btn-group">
+        <button id="btn-reset" class="btn btn-secondary" title="Reset simulator to initial state (Single process PID 4100)">
+          Reset
+        </button>
+        <button id="btn-step-back" class="btn btn-secondary" title="Step backward one execution event" disabled>
+          Step Back
+        </button>
+        <button id="btn-step" class="btn btn-primary" title="Execute next instruction (Space / &rarr;)">
+          Step
+        </button>
+        <button id="btn-run" class="btn btn-success" title="Run simulation automatically">
+          Run
+        </button>
+        <button id="btn-pause" class="btn btn-secondary" title="Pause automatic execution" style="display: none;">
+          Pause
+        </button>
+      </div>
+
+      <div class="control-divider"></div>
+
+      <!-- Schedule Preset Selection -->
+      <div class="control-preset">
+        <label for="select-schedule" class="control-label">Schedule:</label>
+        <select id="select-schedule" class="select-debugger" title="Select simulated scheduler interleaving">
+          <option value="schedule-interactive">Interactive (Choose Process)</option>
+          <option value="schedule-parent-first">Parent First (CFS Path A)</option>
+          <option value="schedule-child-first">Child First (CFS Path B)</option>
+          <option value="schedule-failure">Simulate fork() Failure</option>
+        </select>
+      </div>
+
+      <div class="control-speed">
+        <label for="select-speed" class="control-label">Speed:</label>
+        <select id="select-speed" class="select-debugger" title="Execution animation speed">
+          <option value="1200">Slow (1.2s)</option>
+          <option value="650" selected>Normal (650ms)</option>
+          <option value="250">Fast (250ms)</option>
+        </select>
+      </div>
+
+      <div class="control-divider"></div>
+
+      <div class="shortcut-hints" title="Keyboard Shortcuts">
+        <span class="hint-key">Space / &rarr;</span> Step
+        <span class="hint-key">&larr;</span> Back
+        <span class="hint-key">P</span> Step Parent
+        <span class="hint-key">C</span> Step Child
+        <span class="hint-key">R</span> Reset
+      </div>
+    </div>
+  </header>
+
+  <!-- Synchronized Execution Status Bar (Answers Core Debugger Questions) -->
+  <div id="status-banner" class="status-banner" role="status">
+    <div class="status-badges-row">
+      <div class="status-badge-item" id="status-proc-badge" title="Which process is currently executing?">
+        <span class="badge-label">Active:</span>
+        <span class="badge-val badge-val-parent" id="status-proc-text">PID 4100 (Single Process)</span>
+      </div>
+      <div class="status-badge-item" id="status-pc-badge" title="What source line is currently executing?">
+        <span class="badge-label">Line:</span>
+        <span class="badge-val" id="status-pc-text">Line 10: fork()</span>
+      </div>
+      <div class="status-badge-item" id="status-ret-badge" title="What value did fork() return to this process?">
+        <span class="badge-label">fork() Ret:</span>
+        <span class="badge-val" id="status-ret-text">uncalled</span>
+      </div>
+      <div class="status-badge-item" id="status-mem-badge" title="Is the relevant physical page shared or private?">
+        <span class="badge-label">Physical Page:</span>
+        <span class="badge-val" id="status-mem-text">Exclusive (Frame A)</span>
+      </div>
+    </div>
+    
+    <div class="status-descriptions-row">
+      <div class="status-desc-col">
+        <span class="desc-tag">STATE:</span>
+        <span id="status-text" class="status-text">
+          Single process (PID 4100) running before fork(). Variable <code>counter = 10</code>. Ready to invoke <code>fork()</code>.
+        </span>
+      </div>
+      <div class="status-next-col">
+        <span class="desc-tag tag-next">WHAT HAPPENS NEXT:</span>
+        <span id="status-next-text" class="status-next-text">
+          Invoke sys_fork() syscall at line 10 to duplicate the process into parent and child.
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main 4-Area Connected Debugger Workspace -->
+  <main class="workbench-grid">
+    
+    <!-- ============================================== -->
+    <!-- AREA A: C SOURCE CODE (Left)                   -->
+    <!-- ============================================== -->
+    <section class="panel panel-source" id="panel-source" aria-labelledby="heading-source">
+      <div class="panel-header">
+        <div class="panel-header-left">
+          <h2 id="heading-source" class="panel-title">Source</h2>
+          <span class="file-name">process_fork.c</span>
+        </div>
+        <div class="pc-legend">
+          <span class="pc-badge pc-parent" title="Parent Instruction Pointer"><span class="pc-marker">P</span> 4100</span>
+          <span class="pc-badge pc-child" title="Child Instruction Pointer"><span class="pc-marker">C</span> 4101</span>
+        </div>
+      </div>
+
+      <div class="panel-body source-body">
+        <div class="code-editor-wrapper" id="code-container" tabindex="0" aria-label="C Source Code">
+          <div class="code-viewport" id="code-viewport">
+            <div class="code-line" id="code-line-1" data-line="1">
+              <span class="line-num">1</span>
+              <span class="line-pc-gutter" id="pc-gutter-1"></span>
+              <span class="line-content"><span class="syn-kwd">#include</span><span class="syn-str"> &lt;stdio.h&gt;</span></span>
+            </div>
+            <div class="code-line" id="code-line-2" data-line="2">
+              <span class="line-num">2</span>
+              <span class="line-pc-gutter" id="pc-gutter-2"></span>
+              <span class="line-content"><span class="syn-kwd">#include</span><span class="syn-str"> &lt;unistd.h&gt;</span></span>
+            </div>
+            <div class="code-line" id="code-line-3" data-line="3">
+              <span class="line-num">3</span>
+              <span class="line-pc-gutter" id="pc-gutter-3"></span>
+              <span class="line-content"><span class="syn-kwd">#include</span><span class="syn-str"> &lt;sys/types.h&gt;</span></span>
+            </div>
+            <div class="code-line" id="code-line-4" data-line="4">
+              <span class="line-num">4</span>
+              <span class="line-pc-gutter" id="pc-gutter-4"></span>
+              <span class="line-content"><span class="syn-kwd">#include</span><span class="syn-str"> &lt;sys/wait.h&gt;</span></span>
+            </div>
+            <div class="code-line" id="code-line-5" data-line="5">
+              <span class="line-num">5</span>
+              <span class="line-pc-gutter" id="pc-gutter-5"></span>
+              <span class="line-content"></span>
+            </div>
+            <div class="code-line" id="code-line-6" data-line="6">
+              <span class="line-num">6</span>
+              <span class="line-pc-gutter" id="pc-gutter-6"></span>
+              <span class="line-content"><span class="syn-type">int</span><span> </span><span class="syn-func">main</span><span>(void) {</span></span>
+            </div>
+            <div class="code-line" id="code-line-7" data-line="7">
+              <span class="line-num">7</span>
+              <span class="line-pc-gutter" id="pc-gutter-7"></span>
+              <span class="line-content"><span>    </span><span class="syn-type">int</span><span> counter = </span><span class="syn-num">10</span><span>;</span></span>
+            </div>
+            <div class="code-line" id="code-line-8" data-line="8">
+              <span class="line-num">8</span>
+              <span class="line-pc-gutter" id="pc-gutter-8"></span>
+              <span class="line-content"><span>    </span><span class="syn-func">printf</span><span>(</span><span class="syn-str">"Initial counter: %d\n"</span><span>, counter);</span></span>
+            </div>
+            <div class="code-line" id="code-line-9" data-line="9">
+              <span class="line-num">9</span>
+              <span class="line-pc-gutter" id="pc-gutter-9"></span>
+              <span class="line-content"></span>
+            </div>
+            <div class="code-line active-parent" id="code-line-10" data-line="10">
+              <span class="line-num">10</span>
+              <span class="line-pc-gutter" id="pc-gutter-10"><span class="pc-icon pc-icon-p" title="Parent Instruction Pointer">P</span></span>
+              <span class="line-content"><span>    </span><span class="syn-type">pid_t</span><span> pid = </span><span class="syn-func">fork</span><span>();</span></span>
+            </div>
+            <div class="code-line" id="code-line-11" data-line="11">
+              <span class="line-num">11</span>
+              <span class="line-pc-gutter" id="pc-gutter-11"></span>
+              <span class="line-content"></span>
+            </div>
+            <div class="code-line" id="code-line-12" data-line="12">
+              <span class="line-num">12</span>
+              <span class="line-pc-gutter" id="pc-gutter-12"></span>
+              <span class="line-content"><span>    </span><span class="syn-kwd">if</span><span> (pid &lt; </span><span class="syn-num">0</span><span>) {</span></span>
+            </div>
+            <div class="code-line" id="code-line-13" data-line="13">
+              <span class="line-num">13</span>
+              <span class="line-pc-gutter" id="pc-gutter-13"></span>
+              <span class="line-content"><span>        </span><span class="syn-func">fprintf</span><span>(stderr, </span><span class="syn-str">"fork failed\n"</span><span>);</span></span>
+            </div>
+            <div class="code-line" id="code-line-14" data-line="14">
+              <span class="line-num">14</span>
+              <span class="line-pc-gutter" id="pc-gutter-14"></span>
+              <span class="line-content"><span>        </span><span class="syn-kwd">return</span><span> </span><span class="syn-num">1</span><span>;</span></span>
+            </div>
+            <div class="code-line" id="code-line-15" data-line="15">
+              <span class="line-num">15</span>
+              <span class="line-pc-gutter" id="pc-gutter-15"></span>
+              <span class="line-content"><span>    } </span><span class="syn-kwd">else if</span><span> (pid == </span><span class="syn-num">0</span><span>) {</span></span>
+            </div>
+            <div class="code-line" id="code-line-16" data-line="16">
+              <span class="line-num">16</span>
+              <span class="line-pc-gutter" id="pc-gutter-16"></span>
+              <span class="line-content"><span>        counter += </span><span class="syn-num">5</span><span>;</span></span>
+            </div>
+            <div class="code-line" id="code-line-17" data-line="17">
+              <span class="line-num">17</span>
+              <span class="line-pc-gutter" id="pc-gutter-17"></span>
+              <span class="line-content"><span>        </span><span class="syn-func">printf</span><span>(</span><span class="syn-str">"Child  [PID %d]: counter = %d\n"</span><span>, </span><span class="syn-func">getpid</span><span>(), counter);</span></span>
+            </div>
+            <div class="code-line" id="code-line-18" data-line="18">
+              <span class="line-num">18</span>
+              <span class="line-pc-gutter" id="pc-gutter-18"></span>
+              <span class="line-content"><span>        </span><span class="syn-kwd">return</span><span> </span><span class="syn-num">0</span><span>;</span></span>
+            </div>
+            <div class="code-line" id="code-line-19" data-line="19">
+              <span class="line-num">19</span>
+              <span class="line-pc-gutter" id="pc-gutter-19"></span>
+              <span class="line-content"><span>    } </span><span class="syn-kwd">else</span><span> {</span></span>
+            </div>
+            <div class="code-line" id="code-line-20" data-line="20">
+              <span class="line-num">20</span>
+              <span class="line-pc-gutter" id="pc-gutter-20"></span>
+              <span class="line-content"><span>        counter += </span><span class="syn-num">100</span><span>;</span></span>
+            </div>
+            <div class="code-line" id="code-line-21" data-line="21">
+              <span class="line-num">21</span>
+              <span class="line-pc-gutter" id="pc-gutter-21"></span>
+              <span class="line-content"><span>        </span><span class="syn-func">printf</span><span>(</span><span class="syn-str">"Parent [PID %d]: counter = %d\n"</span><span>, </span><span class="syn-func">getpid</span><span>(), counter);</span></span>
+            </div>
+            <div class="code-line" id="code-line-22" data-line="22">
+              <span class="line-num">22</span>
+              <span class="line-pc-gutter" id="pc-gutter-22"></span>
+              <span class="line-content"><span>        </span><span class="syn-func">wait</span><span>(NULL);</span></span>
+            </div>
+            <div class="code-line" id="code-line-23" data-line="23">
+              <span class="line-num">23</span>
+              <span class="line-pc-gutter" id="pc-gutter-23"></span>
+              <span class="line-content"><span>        </span><span class="syn-kwd">return</span><span> </span><span class="syn-num">0</span><span>;</span></span>
+            </div>
+            <div class="code-line" id="code-line-24" data-line="24">
+              <span class="line-num">24</span>
+              <span class="line-pc-gutter" id="pc-gutter-24"></span>
+              <span class="line-content"><span>    }</span></span>
+            </div>
+            <div class="code-line" id="code-line-25" data-line="25">
+              <span class="line-num">25</span>
+              <span class="line-pc-gutter" id="pc-gutter-25"></span>
+              <span class="line-content"><span>}</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Simulated Stdout Console attached to process output -->
+        <div class="stdout-console" id="stdout-container">
+          <div class="console-header">
+            <span class="console-title">Output Stream (stdout / stderr)</span>
+            <button id="btn-clear-console" class="btn-link" title="Clear console output">Clear</button>
+          </div>
+          <div class="console-output" id="console-output" role="log" aria-live="polite">
+            <div class="console-empty">[Process standard output stream will appear here]</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- AREA B: PROCESS EXECUTION LANES (Center)       -->
+    <!-- ============================================== -->
+    <section class="panel panel-processes" id="panel-processes" aria-labelledby="heading-processes">
+      <div class="panel-header">
+        <div class="panel-header-left">
+          <h2 id="heading-processes" class="panel-title">Process Execution Lanes</h2>
+        </div>
+        <div class="scheduler-pill" id="scheduler-pill">
+          <span class="scheduler-label">Scheduler:</span>
+          <span id="scheduler-active-badge" class="state-badge badge-running">PID 4100 Active</span>
+        </div>
+      </div>
+
+      <div class="panel-body processes-body">
+        
+        <!-- Scheduling Decision Bar (Explicit, Non-Deterministic) -->
+        <div class="scheduler-decision-box" id="scheduler-decision-box">
+          <div class="scheduler-notice">
+            <span class="sched-pill">Linux CFS Scheduler</span>
+            <span id="sched-explanation">Execution order is non-deterministic. Linux does not guarantee whether Parent or Child runs first.</span>
+          </div>
+          <div class="sched-choice-buttons" id="interleaving-controls">
+            <button id="btn-step-parent" class="btn btn-parent-lane btn-sm" title="Step Parent process next (Keyboard: P)">
+              ▶ Step Parent (4100) &rarr; <span class="sched-target" id="sched-parent-target">Line 10: fork()</span>
+            </button>
+            <button id="btn-step-child" class="btn btn-child-lane btn-sm" title="Step Child process next (Keyboard: C)" disabled>
+              ▶ Step Child (4101) &rarr; <span class="sched-target" id="sched-child-target">Unborn</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Visual Lanes for Parent and Child -->
+        <div class="lanes-container" id="lanes-container">
+          
+          <!-- PARENT PROCESS LANE -->
+          <article class="process-lane lane-parent lane-active" id="lane-parent" aria-label="Parent Process State">
+            <div class="lane-header">
+              <div class="lane-identity">
+                <span class="lane-tag tag-parent">PARENT</span>
+                <span class="lane-pid">PID: <strong id="parent-pid">4100</strong></span>
+                <span class="lane-ppid">PPID: <span id="parent-ppid">4000</span></span>
+              </div>
+              <div class="lane-state-wrapper">
+                <span id="parent-state-badge" class="state-badge badge-running">RUNNING</span>
+              </div>
+            </div>
+
+            <div class="lane-details-grid">
+              <div class="detail-cell">
+                <span class="cell-label">fork() Return:</span>
+                <div class="cell-value-badge ret-parent" id="parent-ret-val" title="Parent receives child PID on success">
+                  <span id="parent-ret-text">uncalled</span>
+                </div>
+                <span class="cell-hint" id="parent-ret-hint">Receives child PID (> 0)</span>
+              </div>
+
+              <div class="detail-cell">
+                <span class="cell-label">Current Instruction:</span>
+                <div class="cell-value-mono" id="parent-pc-text">Line 10: fork()</div>
+                <span class="cell-hint" id="parent-pc-hint">Line 10: pid_t pid = fork();</span>
+              </div>
+            </div>
+
+            <!-- Parent Variable Inspector -->
+            <div class="variable-box">
+              <div class="var-box-header">
+                <span class="var-box-title">Stack Frame Variables</span>
+                <span class="var-box-addr">virtual @ 0x7ffd104c</span>
+              </div>
+              <div class="var-row">
+                <span class="var-name">int counter</span>
+                <span class="var-op">=</span>
+                <span class="var-val" id="parent-counter-val">10</span>
+                <span class="var-delta" id="parent-counter-delta"></span>
+              </div>
+            </div>
+
+            <div class="lane-footer">
+              <div class="lane-next-action" id="parent-next-action">
+                <strong>Next:</strong> Call sys_fork() syscall
+              </div>
+              <div class="lane-status-line" id="parent-status-line">
+                Currently running in single-process mode before fork().
+              </div>
+            </div>
+          </article>
+
+          <!-- Divider: Visual fork junction -->
+          <div class="fork-junction" id="fork-junction" aria-hidden="true">
+            <div class="junction-stem" id="junction-stem"></div>
+            <div class="junction-fork-icon" id="junction-fork-icon" title="Fork syscall branch point">&lambda;</div>
+          </div>
+
+          <!-- CHILD PROCESS LANE -->
+          <article class="process-lane lane-child lane-unborn" id="lane-child" aria-label="Child Process State">
+            <div class="lane-header">
+              <div class="lane-identity">
+                <span class="lane-tag tag-child">CHILD</span>
+                <span class="lane-pid">PID: <strong id="child-pid">4101</strong></span>
+                <span class="lane-ppid">PPID: <span id="child-ppid">4100</span></span>
+              </div>
+              <div class="lane-state-wrapper">
+                <span id="child-state-badge" class="state-badge badge-unborn">NOT CREATED</span>
+              </div>
+            </div>
+
+            <div class="lane-details-grid">
+              <div class="detail-cell">
+                <span class="cell-label">fork() Return:</span>
+                <div class="cell-value-badge ret-child" id="child-ret-val" title="Child receives 0 on success">
+                  <span id="child-ret-text">&mdash;</span>
+                </div>
+                <span class="cell-hint" id="child-ret-hint">Receives 0 (NOT its PID)</span>
+              </div>
+
+              <div class="detail-cell">
+                <span class="cell-label">Current Instruction:</span>
+                <div class="cell-value-mono" id="child-pc-text">&mdash;</div>
+                <span class="cell-hint" id="child-pc-hint">Starts right after fork()</span>
+              </div>
+            </div>
+
+            <!-- Child Variable Inspector -->
+            <div class="variable-box">
+              <div class="var-box-header">
+                <span class="var-box-title">Stack Frame Variables</span>
+                <span class="var-box-addr">virtual @ 0x7ffd104c</span>
+              </div>
+              <div class="var-row">
+                <span class="var-name">int counter</span>
+                <span class="var-op">=</span>
+                <span class="var-val" id="child-counter-val">&mdash;</span>
+                <span class="var-delta" id="child-counter-delta"></span>
+              </div>
+            </div>
+
+            <div class="lane-footer">
+              <div class="lane-next-action" id="child-next-action">
+                <strong>Next:</strong> Awaiting creation via fork()
+              </div>
+              <div class="lane-status-line" id="child-status-line">
+                Process does not exist yet. Kernel task_struct has not been allocated.
+              </div>
+            </div>
+          </article>
+
+        </div>
+
+        <!-- Independent Variables Side-by-Side Verification Box -->
+        <div class="variables-diff-panel" id="variables-diff-panel">
+          <div class="diff-header">
+            <span class="diff-title">Independent Variable &amp; Memory Isolation Verification</span>
+            <span class="diff-badge" id="diff-status-badge">Single Process</span>
+          </div>
+          <div class="diff-grid">
+            <div class="diff-col col-parent">
+              <span class="col-proc">Parent (PID 4100)</span>
+              <div class="col-val-line"><code>counter = </code><span class="val-mono val-parent" id="diff-parent-val">10</span></div>
+            </div>
+            <div class="diff-comparator">
+              <span class="comparator-icon" id="comparator-icon">&mdash;</span>
+              <span class="comparator-desc" id="comparator-desc">Pre-fork</span>
+            </div>
+            <div class="diff-col col-child">
+              <span class="col-proc">Child (PID 4101)</span>
+              <div class="col-val-line"><code>counter = </code><span class="val-mono val-child" id="diff-child-val">&mdash;</span></div>
+            </div>
+          </div>
+          <div class="diff-isolation-box">
+            <div class="isolation-q">Why did the other process's variable remain unchanged?</div>
+            <div class="isolation-a" id="diff-isolation-text">
+              Only Parent exists currently. Once fork() runs, parent and child get independent virtual address spaces. Modifying private variables in one never alters the other.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- AREA C: MEMORY / COPY-ON-WRITE (Right)         -->
+    <!-- ============================================== -->
+    <section class="panel panel-memory" id="panel-memory" aria-labelledby="heading-memory">
+      <div class="panel-header">
+        <div class="panel-header-left">
+          <h2 id="heading-memory" class="panel-title">Virtual Memory &amp; COW</h2>
+        </div>
+        <div class="memory-stage-pill">
+          <span id="cow-status-pill" class="state-badge badge-neutral">Pre-fork (Single VMA)</span>
+        </div>
+      </div>
+
+      <div class="panel-body memory-body">
+        
+        <!-- Core Kernel Architecture Principle Callout -->
+        <div class="cow-principle-banner">
+          <div class="principle-badge">CORE PRINCIPLE</div>
+          <div class="principle-statement">
+            <strong>Separate virtual address spaces</strong> does not mean <strong>immediate separate physical copies of every page</strong>.
+          </div>
+        </div>
+
+        <!-- Virtual-to-Physical Mapping & Page Table Inspection -->
+        <div class="cow-mapping-section">
+          <div class="section-micro-header">
+            <span>Page Tables &amp; Physical Frame Allocation</span>
+            <span class="badge-tag">4 KiB Pages</span>
+          </div>
+
+          <!-- Mapping Visualizer -->
+          <div class="mapping-visualizer" id="mapping-visualizer">
+            
+            <!-- Virtual Pages Column -->
+            <div class="map-col map-virtual">
+              <div class="map-col-title">Virtual Address Spaces</div>
+              
+              <!-- Parent Virtual Page -->
+              <div class="page-card vpage-parent" id="vpage-parent">
+                <div class="page-card-header">
+                  <span class="proc-indicator tag-parent">PARENT</span>
+                  <span class="page-num">VPN: 0x7ffd10</span>
+                </div>
+                <div class="page-contents">
+                  <div class="page-var">var: <code>counter</code> (0x7ffd104c)</div>
+                  <div class="page-perm" id="vpage-parent-perm">PTE: Read / Write (Exclusive)</div>
+                </div>
+                <div class="pointer-arrow pointer-parent" id="pointer-parent">&rarr;</div>
+              </div>
+
+              <!-- Child Virtual Page -->
+              <div class="page-card vpage-child card-disabled" id="vpage-child">
+                <div class="page-card-header">
+                  <span class="proc-indicator tag-child">CHILD</span>
+                  <span class="page-num">VPN: 0x7ffd10</span>
+                </div>
+                <div class="page-contents">
+                  <div class="page-var">var: <code>counter</code> (0x7ffd104c)</div>
+                  <div class="page-perm" id="vpage-child-perm">PTE: Unmapped</div>
+                </div>
+                <div class="pointer-arrow pointer-child" id="pointer-child" style="display: none;">&rarr;</div>
+              </div>
+            </div>
+
+            <!-- Physical Frames Column -->
+            <div class="map-col map-physical">
+              <div class="map-col-title">Physical RAM Frames</div>
+              
+              <!-- Physical Frame A -->
+              <div class="page-card pframe pframe-shared" id="pframe-a">
+                <div class="page-card-header">
+                  <span class="frame-tag">FRAME A</span>
+                  <span class="frame-addr">0x0A400</span>
+                </div>
+                <div class="page-contents">
+                  <div class="frame-val" id="pframe-a-val"><code>val: 10</code></div>
+                  <div class="frame-meta">
+                    <span class="frame-refs" id="pframe-a-refs">Refs: 1</span>
+                    <span class="frame-cow-badge" id="pframe-a-cow">Exclusive</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Physical Frame B (Allocated upon COW fault) -->
+              <div class="page-card pframe pframe-b card-inactive" id="pframe-b">
+                <div class="page-card-header">
+                  <span class="frame-tag">FRAME B</span>
+                  <span class="frame-addr">0x0B800</span>
+                </div>
+                <div class="page-contents">
+                  <div class="frame-val" id="pframe-b-val"><code>[Unallocated]</code></div>
+                  <div class="frame-meta">
+                    <span class="frame-refs" id="pframe-b-refs">Refs: 0</span>
+                    <span class="frame-cow-badge" id="pframe-b-cow">Unallocated</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- Memory Legend -->
+          <div class="memory-legend">
+            <span class="legend-item"><span class="legend-box box-parent"></span> Parent VPN</span>
+            <span class="legend-item"><span class="legend-box box-child"></span> Child VPN</span>
+            <span class="legend-item"><span class="legend-box box-shared-frame"></span> Shared Frame (COW)</span>
+            <span class="legend-item"><span class="legend-box box-private-frame"></span> Private Frame</span>
+          </div>
+
+          <!-- Dedicated Memory Transition & COW Inspector Box (Replaces Arbitrary Buttons) -->
+          <div class="memory-inspector-box">
+            <div class="mem-inspector-header">
+              <span class="mem-inspector-title">Memory State Inspector</span>
+              <span class="badge-tag" id="mem-backing-badge">Shared or Private?</span>
+            </div>
+            
+            <div class="mem-qa-item">
+              <span class="mem-q-label">What changed in memory?</span>
+              <div class="mem-a-text" id="mem-transition-text">
+                Single physical Frame A (0x0A400) is allocated to Parent with counter = 10.
+              </div>
+            </div>
+
+            <div class="mem-qa-item">
+              <span class="mem-q-label">Physical backing status:</span>
+              <div class="mem-a-text" id="mem-backing-text">
+                Exclusive Private (Frame A, Refs: 1).
+              </div>
+            </div>
+
+            <div class="mem-qa-item">
+              <span class="mem-q-label">Copy-On-Write Kernel Mechanism:</span>
+              <div class="mem-a-text" id="mem-cow-action-text">
+                At fork(), Linux marks writable pages Read-Only without copying them. A hardware page fault (#PF) is trapped only when a write occurs, copying 4 KiB on demand.
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ============================================== -->
+    <!-- AREA D: EXECUTION TRACE (Bottom)               -->
+    <!-- ============================================== -->
+    <section class="panel panel-trace" id="panel-trace" aria-labelledby="heading-trace">
+      <div class="panel-header trace-header">
+        <div class="panel-header-left">
+          <h2 id="heading-trace" class="panel-title">Execution Trace</h2>
+          <span class="trace-counter" id="trace-counter">1 event</span>
+        </div>
+        
+        <div class="trace-filters" role="group" aria-label="Event Log Filters">
+          <button class="filter-chip active" data-filter="all">All</button>
+          <button class="filter-chip" data-filter="parent">Parent</button>
+          <button class="filter-chip" data-filter="child">Child</button>
+          <button class="filter-chip" data-filter="kernel">Kernel</button>
+          <button class="filter-chip" data-filter="cow">Memory / COW</button>
+        </div>
+      </div>
+
+      <div class="panel-body trace-body" id="trace-container" tabindex="0" aria-label="Simulated Event Log List">
+        <div class="trace-list" id="trace-list">
+          <!-- Dynamically populated trace rows -->
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <script src="js/bundle.js"></script>
+</body>
+</html>

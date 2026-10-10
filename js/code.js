@@ -1,0 +1,28 @@
+// C Program definition with line-by-line syntax structure and metadata
+export const C_SOURCE_LINES = [
+  { line: 1, text: '#include <stdio.h>', tokens: [{ type: 'kwd', text: '#include' }, { type: 'str', text: ' <stdio.h>' }] },
+  { line: 2, text: '#include <unistd.h>', tokens: [{ type: 'kwd', text: '#include' }, { type: 'str', text: ' <unistd.h>' }] },
+  { line: 3, text: '#include <sys/types.h>', tokens: [{ type: 'kwd', text: '#include' }, { type: 'str', text: ' <sys/types.h>' }] },
+  { line: 4, text: '#include <sys/wait.h>', tokens: [{ type: 'kwd', text: '#include' }, { type: 'str', text: ' <sys/wait.h>' }] },
+  { line: 5, text: '', tokens: [] },
+  { line: 6, text: 'int main(void) {', tokens: [{ type: 'type', text: 'int' }, { text: ' ' }, { type: 'func', text: 'main' }, { text: '(void) {' }] },
+  { line: 7, text: '    int counter = 10;', tokens: [{ text: '    ' }, { type: 'type', text: 'int' }, { text: ' counter = ' }, { type: 'num', text: '10' }, { text: ';' }] },
+  { line: 8, text: '    printf("Initial counter: %d\\n", counter);', tokens: [{ text: '    ' }, { type: 'func', text: 'printf' }, { text: '(' }, { type: 'str', text: '"Initial counter: %d\\n"' }, { text: ', counter);' }] },
+  { line: 9, text: '', tokens: [] },
+  { line: 10, text: '    pid_t pid = fork();', isForkCall: true, tokens: [{ text: '    ' }, { type: 'type', text: 'pid_t' }, { text: ' pid = ' }, { type: 'func', text: 'fork' }, { text: '();' }] },
+  { line: 11, text: '', tokens: [] },
+  { line: 12, text: '    if (pid < 0) {', isBranchCheck: true, tokens: [{ text: '    ' }, { type: 'kwd', text: 'if' }, { text: ' (pid < ' }, { type: 'num', text: '0' }, { text: ') {' }] },
+  { line: 13, text: '        fprintf(stderr, "fork failed\\n");', tokens: [{ text: '        ' }, { type: 'func', text: 'fprintf' }, { text: '(stderr, ' }, { type: 'str', text: '"fork failed\\n"' }, { text: ');' }] },
+  { line: 14, text: '        return 1;', tokens: [{ text: '        ' }, { type: 'kwd', text: 'return' }, { text: ' ' }, { type: 'num', text: '1' }, { text: ';' }] },
+  { line: 15, text: '    } else if (pid == 0) {', isChildBranch: true, tokens: [{ text: '    } ' }, { type: 'kwd', text: 'else if' }, { text: ' (pid == ' }, { type: 'num', text: '0' }, { text: ') {' }] },
+  { line: 16, text: '        counter += 5;', isChildWrite: true, tokens: [{ text: '        counter += ' }, { type: 'num', text: '5' }, { text: ';' }] },
+  { line: 17, text: '        printf("Child  [PID %d]: counter = %d\\n", getpid(), counter);', tokens: [{ text: '        ' }, { type: 'func', text: 'printf' }, { text: '(' }, { type: 'str', text: '"Child  [PID %d]: counter = %d\\n"' }, { text: ', ' }, { type: 'func', text: 'getpid' }, { text: '(), counter);' }] },
+  { line: 18, text: '        return 0;', tokens: [{ text: '        ' }, { type: 'kwd', text: 'return' }, { text: ' ' }, { type: 'num', text: '0' }, { text: ';' }] },
+  { line: 19, text: '    } else {', isParentBranch: true, tokens: [{ text: '    } ' }, { type: 'kwd', text: 'else' }, { text: ' {' }] },
+  { line: 20, text: '        counter += 100;', isParentWrite: true, tokens: [{ text: '        counter += ' }, { type: 'num', text: '100' }, { text: ';' }] },
+  { line: 21, text: '        printf("Parent [PID %d]: counter = %d\\n", getpid(), counter);', tokens: [{ text: '        ' }, { type: 'func', text: 'printf' }, { text: '(' }, { type: 'str', text: '"Parent [PID %d]: counter = %d\\n"' }, { text: ', ' }, { type: 'func', text: 'getpid' }, { text: '(), counter);' }] },
+  { line: 22, text: '        wait(NULL);', isWaitCall: true, tokens: [{ text: '        ' }, { type: 'func', text: 'wait' }, { text: '(NULL);' }] },
+  { line: 23, text: '        return 0;', tokens: [{ text: '        ' }, { type: 'kwd', text: 'return' }, { text: ' ' }, { type: 'num', text: '0' }, { text: ';' }] },
+  { line: 24, text: '    }', tokens: [{ text: '    }' }] },
+  { line: 25, text: '}', tokens: [{ text: '}' }] }
+];

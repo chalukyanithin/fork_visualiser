@@ -1,0 +1,21 @@
+{
+  "name": "fork-playground",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Interactive Linux process execution and fork() simulator",
+  "main": "index.html",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "linux",
+    "kernel",
+    "fork",
+    "operating-systems",
+    "copy-on-write",
+    "debugger"
+  ],
+  "author": "Systems Visualization Designer",
+  "license": "MIT"
+}
